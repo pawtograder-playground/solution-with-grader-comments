@@ -1,0 +1,52 @@
+name: Regression Test the Grader
+permissions:
+  id-token: write
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Install OIDC Client from Core Package
+        run: npm install @actions/core@1.11.1 @actions/http-client
+      - name: Get Id Token
+        uses: actions/github-script@v7
+        id: idtoken
+        with:
+          script: |
+            const coredemo = require('@actions/core')
+            let id_token = await coredemo.getIDToken()
+            coredemo.setOutput('id_token', id_token)
+      - name: Retrieve regression test matrix
+        id: set-matrix
+        run: |
+          response=$(curl -H "Authorization: ${{ steps.idtoken.outputs.id_token }}" https://udediaagwykgvdxfgrnw.supabase.co/functions/v1/autograder-retrieve-autograder-regression-tests)
+          echo "matrix=$response" >> $GITHUB_OUTPUT
+        shell: bash
+  smoke-test:
+    name: Submit and Grade Assignment
+    needs: build-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{fromJson(needs.build-matrix.outputs.matrix)}}
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+        with:
+          path: submission
+      - name: Collect Submission and Run Grader
+        uses: neu-se/autograder-action@comments-test
+        with:
+          grading_server: 'https://udediaagwykgvdxfgrnw.supabase.co'
+          handout_repo: 'pawtograder-playground/demo-java-project-handout'
+          regression_test_job: '${{ matrix.configs.id }}'
+          action_ref: '${{ github.action_ref }}'
+          action_repository: '${{ github.action_repository }}'
